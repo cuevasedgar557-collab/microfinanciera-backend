@@ -1,11 +1,12 @@
 const express = require("express");
 const router = express.Router();
 const trabajosController = require("../controllers/trabajos.controller");
+const auth = require("../middlewares/auth");
 
 // listar trabajos
-router.get("/", trabajosController.listarTrabajos);
+router.get("/", auth, trabajosController.listarTrabajos);
 
 // crear trabajo
-router.post("/", trabajosController.crearTrabajo);
+router.post("/", auth, trabajosController.crearTrabajo);
 
 module.exports = router;

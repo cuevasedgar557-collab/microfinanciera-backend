@@ -11,4 +11,5 @@ router.post("/", auth, clientesController.crearCliente);
 router.delete("/:id", auth, clientesController.eliminarCliente);
 router.get("/frecuentes", auth, clientesController.obtenerClientesFrecuentes);
 router.put("/:id", auth, soloAdmin, clientesController.actualizarCliente);
+router.get("/dashboard", auth, clientesController.obtenerClientesDashboard);
 module.exports = router;

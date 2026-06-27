@@ -16,4 +16,3 @@ const listarDepartamentos = (req, res) => {
 module.exports = {
   listarDepartamentos
 };
-``

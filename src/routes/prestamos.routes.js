@@ -7,6 +7,7 @@ const auth = require("../middlewares/auth");
 // ✅ Importar funciones explícitamente (NO el objeto completo)
 const {
   crearPrestamo,
+  crearPrestamoExistente,
   obtenerPrestamosPorCliente,
   obtenerTotalPagadoPorCliente,
   obtenerHistorialPrestamos
@@ -20,6 +21,7 @@ RUTAS DE PRÉSTAMOS (PROTEGIDAS)
 
 // ✅ CREAR PRÉSTAMO
 router.post("/", auth, crearPrestamo);
+router.post("/existente", auth, crearPrestamoExistente);
 
 // ✅ OBTENER PRÉSTAMOS POR CLIENTE
 router.get("/cliente/:clienteId", auth, obtenerPrestamosPorCliente);

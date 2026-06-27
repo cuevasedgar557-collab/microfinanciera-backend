@@ -31,4 +31,6 @@ router.get(
   recordatoriosController.obtenerRecordatoriosVencidos
 );
 
+router.get("/hoy", auth, recordatoriosController.obtenerRecordatoriosHoy);
+
 module.exports = router;

@@ -14,6 +14,7 @@ exports.listarClientes = (req, res) => {
       c.cedula,
       c.sexo,
       c.telefono,
+      c.estado_civil,
       d.nombre AS departamento,
       m.nombre AS municipio,
       b.nombre AS barrio,
@@ -61,27 +62,29 @@ exports.crearCliente = (req, res) => {
     municipio_id,
     barrio_id,
     direccion,
-    trabajo_id
+    trabajo_id,
+    estado_civil
   } = req.body;
 
   const usuario_id = req.usuario.id; // ✅ usuario real logueado
 
   const sql = `
-    INSERT INTO clientes
-    (
-      nombre,
-      cedula,
-      sexo,
-      telefono,
-      departamento_id,
-      municipio_id,
-      barrio_id,
-      direccion,
-      trabajo_id,
-      usuario_id
-    )
-    VALUES (?,?,?,?,?,?,?,?,?,?)
-  `;
+  INSERT INTO clientes
+  (
+    nombre,
+    cedula,
+    sexo,
+    telefono,
+    departamento_id,
+    municipio_id,
+    barrio_id,
+    direccion,
+    trabajo_id,
+    usuario_id,
+    estado_civil
+  )
+  VALUES (?,?,?,?,?,?,?,?,?,?,?)
+`;
 
   db.query(
     sql,
@@ -95,7 +98,8 @@ exports.crearCliente = (req, res) => {
       barrio_id,
       direccion,
       trabajo_id,
-      usuario_id
+      usuario_id,
+      estado_civil
     ],
     (error, result) => {
       if (error) {
@@ -117,51 +121,76 @@ exports.crearCliente = (req, res) => {
  * DELETE /api/clientes/:id
  * Eliminar cliente y dependencias
  */
-exports.eliminarCliente = (req, res) => {
+const eliminarCliente = async (req, res) => {
   const { id } = req.params;
+  const usuario = req.usuario;
 
-  const borrarCuotas = `
-    DELETE FROM cuotas
-    WHERE prestamo_id IN (
-      SELECT id FROM prestamos WHERE cliente_id = ?
-    )
-  `;
-
-  const borrarPrestamos = `
-    DELETE FROM prestamos WHERE cliente_id = ?
-  `;
-
-  const borrarComentarios = `
-    DELETE FROM comentarios_clientes WHERE cliente_id = ?
-  `;
-
-  const borrarCliente = `
-    DELETE FROM clientes WHERE id = ?
-  `;
-
-  db.query(borrarCuotas, [id], err => {
-    if (err) return res.status(500).json(err);
-
-    db.query(borrarPrestamos, [id], err => {
-      if (err) return res.status(500).json(err);
-
-      db.query(borrarComentarios, [id], err => {
-        if (err) return res.status(500).json(err);
-
-        db.query(borrarCliente, [id], (err, result) => {
-          if (err) return res.status(500).json(err);
-
-          if (result.affectedRows === 0) {
-            return res.status(404).json({ mensaje: "Cliente no encontrado" });
-          }
-
-          res.json({ mensaje: "Cliente eliminado correctamente ✅" });
-        });
-      });
+  if (usuario.rol !== "administrador") {
+    return res.status(403).json({
+      mensaje: "No tienes permisos para eliminar clientes"
     });
-  });
-};
+  }
 
+  const conn = await db.promise().getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    // ✅ 1 eliminar cuotas
+    await conn.execute(`
+      DELETE c FROM cuotas c
+      JOIN prestamos p ON c.prestamo_id = p.id
+      WHERE p.cliente_id = ?
+    `, [id]);
+
+    // 🔥 2 eliminar FIADORES (ESTO ES LO QUE FALTABA)
+    await conn.execute(`
+      DELETE f FROM fiadores f
+      JOIN prestamos p ON f.prestamo_id = p.id
+      WHERE p.cliente_id = ?
+    `, [id]);
+
+    // ✅ 3 eliminar préstamos
+    await conn.execute(`
+      DELETE FROM prestamos 
+      WHERE cliente_id = ?
+    `, [id]);
+
+    // ✅ 4 eliminar comentarios
+    await conn.execute(`
+      DELETE FROM comentarios_clientes
+      WHERE cliente_id = ?
+    `, [id]);
+
+    // ✅ 5 eliminar recordatorios
+    await conn.execute(`
+      DELETE FROM recordatorios
+      WHERE cliente_id = ?
+    `, [id]);
+
+    // ✅ 6 eliminar cliente
+    await conn.execute(`
+      DELETE FROM clientes
+      WHERE id = ?
+    `, [id]);
+
+    await conn.commit();
+
+    res.json({ mensaje: "Cliente eliminado correctamente ✅" });
+
+  } catch (error) {
+    await conn.rollback();
+
+    console.error("Error eliminando cliente:", error);
+
+    res.status(500).json({
+      mensaje: "Error eliminando cliente"
+    });
+
+  } finally {
+    conn.release();
+  }
+};
 
 /**
  * GET /api/clientes/frecuentes
@@ -201,16 +230,17 @@ exports.actualizarCliente = (req, res) => {
   const { id } = req.params;
 
   const {
-    nombre,
-    cedula,
-    sexo,
-    telefono,
-    departamento_id,
-    municipio_id,
-    trabajo_id,
-    barrio_id,
-    direccion
-  } = req.body;
+  nombre,
+  cedula,
+  sexo,
+  telefono,
+  departamento_id,
+  municipio_id,
+  trabajo_id,
+  barrio_id,
+  direccion,
+  estado_civil // ✅ AGREGAR
+} = req.body;
 
   const sql = `
     UPDATE clientes
@@ -223,7 +253,8 @@ exports.actualizarCliente = (req, res) => {
       municipio_id = ?,
       trabajo_id = ?,
       barrio_id = ?,
-      direccion = ?
+      direccion = ?,
+      estado_civil = ?
     WHERE id = ?
   `;
 
@@ -239,6 +270,7 @@ exports.actualizarCliente = (req, res) => {
       trabajo_id,
       barrio_id,
       direccion,
+      estado_civil,
       id
     ],
     err => {
@@ -250,4 +282,56 @@ exports.actualizarCliente = (req, res) => {
       res.json({ mensaje: "Cliente actualizado ✅" });
     }
   );
+};
+
+const obtenerClientesDashboard = (req, res) => {
+  const usuarioId = req.usuario.id;
+  const rol = req.usuario.rol;
+
+  // ✅ detectar admin correctamente
+  const esAdmin = String(rol).toLowerCase() === "administrador";
+
+  let sql = `
+    SELECT 
+      c.id,
+      c.nombre,
+      MAX(p.id) AS prestamo_id
+    FROM clientes c
+    LEFT JOIN prestamos p 
+      ON p.cliente_id = c.id 
+      AND p.estado = 'activo'
+  `;
+
+  let params = [];
+
+  // ✅ SOLO filtrar si no es admin
+  if (!esAdmin) {
+    sql += " WHERE c.usuario_id = ?";
+    params.push(usuarioId);
+  }
+
+  sql += `
+    GROUP BY c.id, c.nombre
+    ORDER BY c.nombre ASC
+  `;
+
+  db.query(sql, params, (err, rows) => {
+    if (err) {
+      console.error("❌ Error clientes dashboard:", err);
+      return res.status(500).json(err);
+    }
+
+    res.json(rows);
+  });
+};
+
+
+//exports
+module.exports = {
+  listarClientes: exports.listarClientes,
+  crearCliente: exports.crearCliente,
+  obtenerClientesFrecuentes: exports.obtenerClientesFrecuentes,
+  actualizarCliente: exports.actualizarCliente,
+  eliminarCliente,
+  obtenerClientesDashboard
 };

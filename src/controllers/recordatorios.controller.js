@@ -83,6 +83,7 @@ const obtenerRecordatoriosDelDia = async (req, res) => {
       SELECT
         r.id,
         r.texto,
+        r.estado,              -- ✅ CLAVE (esto faltaba)
         r.fecha_recordatorio,
         r.fecha_creado,
         c.nombre AS cliente
@@ -100,6 +101,7 @@ const obtenerRecordatoriosDelDia = async (req, res) => {
     res.status(500).json({ mensaje: "Error al obtener recordatorios del día" });
   }
 };
+
 
 // ✅ Marcar recordatorio como hecho
 const marcarRecordatorioComoHecho = async (req, res) => {
@@ -182,7 +184,45 @@ const obtenerRecordatoriosVencidos = async (req, res) => {
     res.status(500).json({ mensaje: "Error al obtener recordatorios vencidos" });
   }
 };
+//recordatorios en el dashboard
+const obtenerRecordatoriosHoy = (req, res) => {
+  const hoy = new Date().toISOString().slice(0, 10);
 
+  const usuarioId = req.usuario.id;
+  const rol = req.usuario.rol;
+
+  let sql = `
+    SELECT 
+      r.id,
+      r.texto AS descripcion,
+      r.fecha_recordatorio AS fecha,
+      c.nombre
+    FROM recordatorios r
+    JOIN clientes c ON c.id = r.cliente_id
+    WHERE (DATE(r.fecha_recordatorio) = ? OR DATE(r.fecha_recordatorio) < ?)
+      AND r.estado = 'pendiente'
+  `;
+
+  let params = [hoy, hoy];
+
+  const esAdmin = String(rol).toLowerCase() === "administrador";
+
+  if (!esAdmin) {
+    sql += " AND c.usuario_id = ?";
+    params.push(usuarioId);
+  }
+
+  sql += " ORDER BY r.fecha ASC";
+
+  db.query(sql, params, (err, rows) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).json({ mensaje: "Error recordatorios" });
+    }
+
+    res.json(rows);
+  });
+};
 // ✅ EXPORTS FINALES
 module.exports = {
   crearRecordatorio,
@@ -190,5 +230,6 @@ module.exports = {
   obtenerRecordatoriosDelDia,
   obtenerRecordatoriosTodos,
   obtenerRecordatoriosVencidos,
-  marcarRecordatorioComoHecho
+  marcarRecordatorioComoHecho,
+  obtenerRecordatoriosHoy
 };

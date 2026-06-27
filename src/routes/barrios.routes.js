@@ -19,4 +19,9 @@ router.delete(
   barriosController.eliminarBarrio
 );
 
+// ✅ ✅ ESTAS SON LAS NUEVAS BIEN HECHAS
+router.get("/pendientes", auth, barriosController.obtenerBarriosPendientes);
+router.put("/aprobar/:id", auth, barriosController.aprobarBarrio);
+router.delete("/pendientes/:id", auth, barriosController.eliminarBarrioPendiente);
+
 module.exports = router;
