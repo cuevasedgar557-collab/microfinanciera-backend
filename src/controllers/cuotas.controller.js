@@ -276,12 +276,12 @@ const obtenerCobrosHoy = (req, res) => {
     SELECT DISTINCT 
       cli.nombre AS nombre,
       u.nombre AS usuario
-    FROM cuotas c
+    FROM pagos pag
+    JOIN cuotas c ON c.id = pag.cuota_id
     JOIN prestamos p ON p.id = c.prestamo_id
     JOIN clientes cli ON cli.id = p.cliente_id
-    JOIN usuarios u ON u.id = cli.usuario_id
-    WHERE DATE(c.fecha_pago) = ?
-      AND c.estado = 'pendiente'
+    JOIN usuarios u ON u.id = pag.usuario_id
+    WHERE DATE(pag.fecha) = ?
       AND p.estado = 'activo'
   `;
 

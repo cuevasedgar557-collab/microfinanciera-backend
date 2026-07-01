@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
 
 // ✅ SEGURIDAD
 const helmet = require("helmet");
@@ -29,6 +30,9 @@ app.use(cors());
 
 // 📦 JSON
 app.use(express.json());
+
+// 📁 ARCHIVOS ESTÁTICOS (Frontend)
+app.use(express.static(path.join(__dirname, "../../frontend")));
 
 // 🚫 RATE LIMIT GENERAL
 const limiter = rateLimit({
