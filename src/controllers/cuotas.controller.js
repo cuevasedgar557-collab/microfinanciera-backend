@@ -9,7 +9,7 @@ const { calcularMoraCuota } = require("../utils/mora.utils");
 const obtenerCuotasPorPrestamo = async (req, res) => {
   try {
     const { prestamoId } = req.params;
-    const hoy = new Date("2026-07-10");
+    const hoy = new Date();
 
 // mes actual
 const mesActual = hoy.getMonth() + 1;
