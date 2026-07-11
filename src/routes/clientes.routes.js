@@ -12,4 +12,11 @@ router.delete("/:id", auth, clientesController.eliminarCliente);
 router.get("/frecuentes", auth, clientesController.obtenerClientesFrecuentes);
 router.put("/:id", auth, soloAdmin, clientesController.actualizarCliente);
 router.get("/dashboard", auth, clientesController.obtenerClientesDashboard);
+
+router.get(
+  "/:id/registro",
+  auth,
+  clientesController.obtenerRegistroCliente
+);
+
 module.exports = router;

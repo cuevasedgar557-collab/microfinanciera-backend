@@ -324,7 +324,117 @@ const obtenerClientesDashboard = (req, res) => {
     res.json(rows);
   });
 };
+const obtenerRegistroCliente = async (req, res) => {
+  const { id } = req.params;
 
+  try {
+
+    const [prestamosFinalizados] = await db.promise().execute(
+      `
+      SELECT COUNT(*) AS total
+      FROM prestamos
+      WHERE cliente_id = ?
+      AND estado = 'finalizado'
+      `,
+      [id]
+    );
+
+    const [prestamosActivos] = await db.promise().execute(
+      `
+      SELECT COUNT(*) AS total
+      FROM prestamos
+      WHERE cliente_id = ?
+      AND estado = 'activo'
+      `,
+      [id]
+    );
+
+    const [totalPrestado] = await db.promise().execute(
+      `
+      SELECT IFNULL(SUM(monto),0) AS total
+      FROM prestamos
+      WHERE cliente_id = ?
+      `,
+      [id]
+    );
+
+    const [totalRecuperado] = await db.promise().execute(
+      `
+      SELECT IFNULL(SUM(c.pagado),0) AS total
+      FROM prestamos p
+      JOIN cuotas c ON c.prestamo_id = p.id
+      WHERE p.cliente_id = ?
+      `,
+      [id]
+    );
+
+    const [mora] = await db.promise().execute(
+      `
+      SELECT
+      IFNULL(SUM(mc.monto_asignado),0) AS mora_total,
+      COUNT(DISTINCT mc.cuota_id) AS cuotas_atrasadas
+      FROM prestamos p
+      LEFT JOIN moras_mensuales mm
+        ON mm.prestamo_id = p.id
+      LEFT JOIN moras_mensuales_cuotas mc
+        ON mc.mora_mensual_id = mm.id
+      WHERE p.cliente_id = ?
+      `,
+      [id]
+    );
+
+    const cuotasAtrasadas =
+      Number(mora[0].cuotas_atrasadas || 0);
+
+    const moraTotal =
+      Number(mora[0].mora_total || 0);
+
+    let evaluacion = "🆕 Cliente nuevo";
+
+    if (
+      moraTotal === 0 &&
+      cuotasAtrasadas === 0 &&
+      prestamosFinalizados[0].total >= 3
+    ) {
+      evaluacion = "🟢 Excelente";
+    } else if (cuotasAtrasadas <= 2) {
+      evaluacion = "🔵 Bueno";
+    } else if (cuotasAtrasadas <= 5) {
+      evaluacion = "🟠 Regular";
+    } else {
+      evaluacion = "🔴 Riesgoso";
+    }
+
+    res.json({
+      prestamos_completados:
+        prestamosFinalizados[0].total,
+
+      prestamos_activos:
+        prestamosActivos[0].total,
+
+      total_prestado:
+        totalPrestado[0].total,
+
+      total_recuperado:
+        totalRecuperado[0].total,
+
+      cuotas_atrasadas:
+        cuotasAtrasadas,
+
+      mora_total:
+        moraTotal,
+
+      evaluacion
+    });
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      mensaje: "Error obteniendo registro"
+    });
+  }
+};
 
 //exports
 module.exports = {
@@ -333,5 +443,6 @@ module.exports = {
   obtenerClientesFrecuentes: exports.obtenerClientesFrecuentes,
   actualizarCliente: exports.actualizarCliente,
   eliminarCliente,
-  obtenerClientesDashboard
+  obtenerClientesDashboard,
+  obtenerRegistroCliente
 };
