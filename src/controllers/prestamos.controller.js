@@ -728,15 +728,196 @@ const obtenerPrestamosCompletadosCliente = (req, res) => {
   });
 };
 
+const anularPrestamo = (req, res) => {
+  const { id } = req.params;
+  const { motivo } = req.body;
+
+  if (!motivo || motivo.trim() === "") {
+    return res.status(400).json({
+      mensaje: "Debe indicar el motivo de la anulación"
+    });
+  }
+
+  const usuarioId = req.usuario.id;
+  const rol = String(req.usuario.rol || "").toLowerCase();
+
+  // Buscar préstamo
+  db.query(
+    `
+    SELECT
+      id,
+      creado_en,
+      estado
+    FROM prestamos
+    WHERE id = ?
+    `,
+    [id],
+    (err, prestamos) => {
+
+      if (err) {
+        console.error(err);
+        return res.status(500).json({
+          mensaje: "Error consultando préstamo"
+        });
+      }
+
+      if (prestamos.length === 0) {
+        return res.status(404).json({
+          mensaje: "Préstamo no encontrado"
+        });
+      }
+
+      const prestamo = prestamos[0];
+
+      if (prestamo.estado !== "activo") {
+        return res.status(400).json({
+          mensaje: "Solo se pueden anular préstamos activos"
+        });
+      }
+
+      // Verificar pagos registrados
+      db.query(
+        `
+        SELECT COUNT(*) AS total
+        FROM pagos p
+        JOIN cuotas c
+          ON c.id = p.cuota_id
+        WHERE c.prestamo_id = ?
+        `,
+        [id],
+        (err, pagos) => {
+
+          if (err) {
+            console.error(err);
+            return res.status(500).json({
+              mensaje: "Error verificando pagos"
+            });
+          }
+
+          if (Number(pagos[0].total) > 0) {
+            return res.status(400).json({
+              mensaje:
+                "Este préstamo ya posee pagos registrados y no puede ser anulado"
+            });
+          }
+
+          // Si NO es administrador aplicar regla de 1 hora
+          if (rol !== "administrador") {
+
+            const creadoEn = new Date(prestamo.creado_en);
+            const ahora = new Date();
+
+            const diferenciaMinutos =
+              (ahora - creadoEn) / (1000 * 60);
+
+            if (diferenciaMinutos > 60) {
+
+              return res.status(403).json({
+                mensaje:
+                  "Este préstamo ya no puede ser anulado. Comuníquese con un administrador."
+              });
+
+            }
+          }
+
+          // Guardar auditoría
+          db.query(
+            `
+            INSERT INTO anulaciones_prestamos
+            (
+              prestamo_id,
+              usuario_id,
+              motivo
+            )
+            VALUES (?, ?, ?)
+            `,
+            [id, usuarioId, motivo],
+            (err) => {
+
+              if (err) {
+                console.error(err);
+                return res.status(500).json({
+                  mensaje: "Error registrando la anulación"
+                });
+              }
+
+              // Marcar préstamo como anulado
+              db.query(
+                `
+                UPDATE prestamos
+                SET estado = 'anulado'
+                WHERE id = ?
+                `,
+                [id],
+                (err) => {
+
+                  if (err) {
+                    console.error(err);
+                    return res.status(500).json({
+                      mensaje: "Error anulando préstamo"
+                    });
+                  }
+
+                  res.json({
+                    mensaje:
+                      "Préstamo anulado correctamente ✅"
+                  });
+
+                }
+              );
+
+            }
+          );
+
+        }
+      );
+
+    }
+  );
+};
+const obtenerPrestamosActivos = (req, res) => {
+
+  const sql = `
+    SELECT
+      p.id,
+      c.nombre AS cliente,
+      p.monto,
+      p.total,
+      p.plazo,
+      p.tipo_cuota,
+      p.fecha_inicio,
+      p.creado_en
+    FROM prestamos p
+    JOIN clientes c
+      ON c.id = p.cliente_id
+    WHERE p.estado = 'activo'
+    ORDER BY p.creado_en DESC
+  `;
+
+  db.query(sql, (err, rows) => {
+
+    if (err) {
+      console.error(err);
+      return res.status(500).json({
+        mensaje: "Error obteniendo préstamos activos"
+      });
+    }
+
+    res.json(rows);
+
+  });
+};
 //exports
 module.exports = {
   crearPrestamo,
   crearPrestamoExistente,
   obtenerPrestamosPorCliente,
+  obtenerPrestamosActivos,
   obtenerTotalPagadoPorCliente,
   obtenerHistorialPrestamos,
   obtenerResumenMoraCliente,
   obtenerPrestamosCompletadosCliente,
-  esFeriadoNicaragua
+  esFeriadoNicaragua,
+  anularPrestamo
 };
 

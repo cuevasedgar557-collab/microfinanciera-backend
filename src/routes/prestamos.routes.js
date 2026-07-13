@@ -10,7 +10,10 @@ const {
   crearPrestamoExistente,
   obtenerPrestamosPorCliente,
   obtenerTotalPagadoPorCliente,
-  obtenerHistorialPrestamos
+  obtenerHistorialPrestamos,
+  anularPrestamo,
+  obtenerResumenMoraCliente,
+  obtenerPrestamosActivos
 } = require("../controllers/prestamos.controller");
 
 /*
@@ -45,13 +48,26 @@ router.get(
   auth,
   prestamosController.obtenerResumenMoraCliente
 );
+// ✅ OBTENER PRÉSTAMOS ACTIVOS
+router.get(
+  "/activos",
+  auth,
+  obtenerPrestamosActivos
+);
 // ✅ PRÉSTAMOS COMPLETADOS POR CLIENTE
 router.get(
   "/cliente/:clienteId/prestamos-completados",
   auth,
   prestamosController.obtenerPrestamosCompletadosCliente
 );
-``
+// ✅ ANULAR PRÉSTAMO
+router.post(
+  "/:id/anular",
+  auth,
+  anularPrestamo
+);
+
+
 
 
 module.exports = router;
