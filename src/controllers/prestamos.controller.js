@@ -119,7 +119,6 @@ const crearPrestamo = (req, res) => {
     fiador,
     garantia
   } = req.body;
-console.log("BODY:", req.body);
   // 🛑 Validaciones básicas
   if (!cliente_id || !monto || !interes || !plazo || !tipo_cuota) {
     return res.status(400).json({ mensaje: "Datos incompletos" });

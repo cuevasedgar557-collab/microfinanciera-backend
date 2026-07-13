@@ -69,10 +69,13 @@ const cicloAnterior = `${anioAnterior}-${String(mesAnterior).padStart(2, "0")}`;
         c.pagado,
         COALESCE(c.saldo, c.monto - c.pagado) AS saldo,
         c.estado,
+        p.total AS total_prestamo,
         IFNULL(SUM(mm.monto_asignado), 0) AS mora
-      FROM cuotas c
+    FROM cuotas c
+      JOIN prestamos p
+        ON p.id = c.prestamo_id
       LEFT JOIN moras_mensuales_cuotas mm
-        ON mm.cuota_id = c.id
+      ON mm.cuota_id = c.id
       WHERE c.prestamo_id = ?
       GROUP BY c.id
       ORDER BY c.numero
@@ -131,7 +134,14 @@ const registrarPagoCuota = async (req, res) => {
     // 1️⃣ Obtener cuota
     const [rows] = await conn.execute(
       `
-      SELECT id, monto, estado
+      SELECT
+        id,
+        prestamo_id,
+        numero,
+        monto,
+        pagado,
+        COALESCE(saldo, monto - pagado) AS saldo,
+        estado
       FROM cuotas
       WHERE id = ?
       FOR UPDATE
@@ -144,13 +154,136 @@ const registrarPagoCuota = async (req, res) => {
     }
 
     const cuota = rows[0];
-    let pagoRestante = Number(monto);
+
+    // ✅ Validar saldo pendiente total del préstamo
+    const [saldoPrestamoRows] = await conn.execute(
+      `
+      SELECT
+        COALESCE(
+          SUM(
+            CASE
+              WHEN saldo IS NULL THEN monto - pagado
+              ELSE saldo
+            END
+          ),
+          0
+        ) AS saldo_pendiente
+      FROM cuotas
+      WHERE prestamo_id = ?
+        AND estado = 'pendiente'
+      `,
+      [cuota.prestamo_id]
+    );
+
+    const saldoPrestamo =
+      Number(saldoPrestamoRows[0].saldo_pendiente);
+
+    if (Number(monto) > saldoPrestamo) {
+      throw new Error(
+        "El monto excede el saldo pendiente del préstamo"
+      );
+    }
 
     if (cuota.estado === "pagada") {
       throw new Error("Esta cuota ya está pagada");
     }
 
-    // ✅ 2️⃣ REGISTRAR PAGO
+    // ✅ Excedente real contra el saldo pendiente
+    const excedente =
+      Number(monto) - Number(cuota.saldo);
+
+    let pagoRestante = Number(monto);
+
+    // ✅ Si pagó más que el saldo de esta cuota
+    if (excedente > 0) {
+
+      await conn.execute(
+        `
+        UPDATE cuotas
+        SET monto = ?
+        WHERE id = ?
+        `,
+        [Number(cuota.monto) + excedente, id]
+      );
+
+      cuota.monto =
+        Number(cuota.monto) + excedente;
+    }
+
+    // ✅ Redistribuir excedente a cuotas futuras
+    if (excedente > 0) {
+
+      let restante = excedente;
+
+      const [cuotasFuturas] = await conn.execute(
+        `
+        SELECT
+          id,
+          monto,
+          numero
+        FROM cuotas
+        WHERE prestamo_id = ?
+          AND numero > ?
+          AND estado = 'pendiente'
+        ORDER BY numero ASC
+        FOR UPDATE
+        `,
+        [cuota.prestamo_id, cuota.numero]
+      );
+
+      for (const futura of cuotasFuturas) {
+
+        if (restante <= 0) break;
+
+        const montoActual = Number(futura.monto);
+
+        const descuento = Math.min(
+          restante,
+          montoActual
+        );
+
+        const nuevoMonto =
+          montoActual - descuento;
+
+        if (nuevoMonto <= 0) {
+
+          await conn.execute(
+            `
+            UPDATE cuotas
+            SET
+              pagado = monto,
+              saldo = 0,
+              estado = 'pagada'
+            WHERE id = ?
+            `,
+            [futura.id]
+          );
+
+        } else {
+
+          await conn.execute(
+            `
+            UPDATE cuotas
+            SET
+              monto = ?,
+              saldo = ?,
+              estado = 'pendiente'
+            WHERE id = ?
+            `,
+            [
+              nuevoMonto,
+              nuevoMonto,
+              futura.id
+            ]
+          );
+
+        }
+
+        restante -= descuento;
+      }
+    }
+
+    // ✅ Registrar pago
     await conn.execute(
       `
       INSERT INTO pagos (cuota_id, usuario_id, monto)
@@ -159,7 +292,7 @@ const registrarPagoCuota = async (req, res) => {
       [id, req.usuario.id, monto]
     );
 
-    // ✅ 3️⃣ PAGAR MORA
+    // ✅ Pagar mora
     const [moras] = await conn.execute(
       `
       SELECT id, monto_asignado
@@ -172,9 +305,13 @@ const registrarPagoCuota = async (req, res) => {
     );
 
     for (const mora of moras) {
+
       if (pagoRestante <= 0) break;
 
-      const aplicar = Math.min(pagoRestante, mora.monto_asignado);
+      const aplicar = Math.min(
+        pagoRestante,
+        mora.monto_asignado
+      );
 
       await conn.execute(
         `
@@ -188,10 +325,10 @@ const registrarPagoCuota = async (req, res) => {
       pagoRestante -= aplicar;
     }
 
-    // ✅ 🔥 4️⃣ CONSULTA OPTIMIZADA (UNA SOLA QUERY)
+    // ✅ Resumen
     const [resumen] = await conn.execute(
       `
-      SELECT 
+      SELECT
         COALESCE(SUM(p.monto), 0) AS total_pagado,
         (
           SELECT COALESCE(SUM(monto_asignado), 0)
@@ -204,17 +341,26 @@ const registrarPagoCuota = async (req, res) => {
       [id, id]
     );
 
-    const totalPagado = Number(resumen[0].total_pagado);
-    const moraRestante = Number(resumen[0].mora_restante);
+    const totalPagado =
+      Number(resumen[0].total_pagado);
 
-    // ✅ 5️⃣ CALCULAR SALDO
-    let nuevoSaldo = (Number(cuota.monto) + moraRestante) - totalPagado;
+    const moraRestante =
+      Number(resumen[0].mora_restante);
 
-    if (nuevoSaldo < 0) nuevoSaldo = 0;
+    let nuevoSaldo =
+      (Number(cuota.monto) + moraRestante) -
+      totalPagado;
 
-    const nuevoEstado = nuevoSaldo === 0 ? "pagada" : "pendiente";
+    if (nuevoSaldo < 0) {
+      nuevoSaldo = 0;
+    }
 
-    // ✅ 6️⃣ ACTUALIZAR CUOTA
+    const nuevoEstado =
+      nuevoSaldo === 0
+        ? "pagada"
+        : "pendiente";
+
+    // ✅ Actualizar cuota actual
     await conn.execute(
       `
       UPDATE cuotas
@@ -224,13 +370,15 @@ const registrarPagoCuota = async (req, res) => {
       [totalPagado, nuevoSaldo, nuevoEstado, id]
     );
 
-    // ✅ 7️⃣ CERRAR PRÉSTAMO
+    // ✅ Cerrar préstamo
     await conn.execute(
       `
       UPDATE prestamos
       SET estado = 'finalizado'
       WHERE id = (
-        SELECT prestamo_id FROM cuotas WHERE id = ?
+        SELECT prestamo_id
+        FROM cuotas
+        WHERE id = ?
       )
       AND NOT EXISTS (
         SELECT 1
@@ -250,16 +398,24 @@ const registrarPagoCuota = async (req, res) => {
     });
 
   } catch (error) {
+
     await conn.rollback();
 
-    console.error("❌ Error registrando pago:", error);
+    console.error(
+      "❌ Error registrando pago:",
+      error
+    );
 
     res.status(500).json({
-      mensaje: error.message || "Error registrando el pago"
+      mensaje:
+        error.message ||
+        "Error registrando el pago"
     });
 
   } finally {
+
     conn.release();
+
   }
 };
 
