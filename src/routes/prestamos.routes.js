@@ -3,6 +3,7 @@ const router = express.Router();
 const prestamosController = require("../controllers/prestamos.controller");
 
 const auth = require("../middlewares/auth");
+const soloAdmin = require("../middlewares/soloAdmin");
 
 // ✅ Importar funciones explícitamente (NO el objeto completo)
 const {
@@ -13,7 +14,8 @@ const {
   obtenerHistorialPrestamos,
   anularPrestamo,
   obtenerResumenMoraCliente,
-  obtenerPrestamosActivos
+  obtenerPrestamosActivos,
+  obtenerAuditoriaAnulaciones
 } = require("../controllers/prestamos.controller");
 
 /*
@@ -54,6 +56,13 @@ router.get(
   auth,
   obtenerPrestamosActivos
 );
+router.get(
+  "/auditoria",
+  auth,
+  soloAdmin,
+  obtenerAuditoriaAnulaciones
+);
+
 // ✅ PRÉSTAMOS COMPLETADOS POR CLIENTE
 router.get(
   "/cliente/:clienteId/prestamos-completados",

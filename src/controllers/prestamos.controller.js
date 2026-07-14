@@ -907,6 +907,52 @@ const obtenerPrestamosActivos = (req, res) => {
 
   });
 };
+
+
+    const obtenerAuditoriaAnulaciones = (req, res) => {
+
+  const sql = `
+    SELECT
+      ap.id,
+      ap.motivo,
+      ap.fecha,
+
+      u.nombre AS usuario,
+
+      c.nombre AS cliente,
+
+      p.monto,
+      p.total
+
+    FROM anulaciones_prestamos ap
+
+    INNER JOIN usuarios u
+      ON u.id = ap.usuario_id
+
+    INNER JOIN prestamos p
+      ON p.id = ap.prestamo_id
+
+    INNER JOIN clientes c
+      ON c.id = p.cliente_id
+
+    ORDER BY ap.fecha DESC
+  `;
+
+  db.query(sql, (err, rows) => {
+
+    if (err) {
+      console.error(err);
+
+      return res.status(500).json({
+        mensaje: "Error obteniendo auditoría"
+      });
+    }
+
+    res.json(rows);
+
+  });
+
+};
 //exports
 module.exports = {
   crearPrestamo,
@@ -918,6 +964,7 @@ module.exports = {
   obtenerResumenMoraCliente,
   obtenerPrestamosCompletadosCliente,
   esFeriadoNicaragua,
-  anularPrestamo
+  anularPrestamo,
+  obtenerAuditoriaAnulaciones
 };
 
