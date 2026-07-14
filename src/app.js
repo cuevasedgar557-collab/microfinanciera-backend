@@ -31,6 +31,14 @@ app.use(cors());
 // 📦 JSON
 app.use(express.json());
 
+// ==========================================
+// 🚀 RUTA DE MONITOREO (UptimeRobot)
+// Se coloca aquí para saltarse los Rate Limits
+// ==========================================
+app.get("/ping", (req, res) => {
+  return res.status(200).send("pong");
+});
+
 // 📁 ARCHIVOS ESTÁTICOS (Frontend)
 app.use(express.static(path.join(__dirname, "../../frontend")));
 
