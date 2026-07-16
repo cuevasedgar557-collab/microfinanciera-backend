@@ -4,6 +4,13 @@ const auth = require("../middlewares/auth");
 const usuariosController = require("../controllers/usuarios.controller");
 
 router.post("/", auth, usuariosController.crearUsuario);
+
 router.get("/", auth, usuariosController.listarUsuarios);
+
+router.put(
+  "/:id",
+  auth,
+  usuariosController.editarUsuario
+);
 
 module.exports = router;
